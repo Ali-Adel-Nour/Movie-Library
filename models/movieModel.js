@@ -5,8 +5,8 @@ const db = require('../config/db');
 
 // Function to retrieve all movies
 const getAllMovies = (callback) => {
-    const sql = `SELECT Movies.*, Directors.name as director_name 
-                 FROM Movies 
+    const sql = `SELECT Movies.*, Directors.name as director_name
+                 FROM Movies
                  LEFT JOIN Directors ON Movies.director_id = Directors.id`;
 
     db.all(sql, [], (err, rows) => {
@@ -16,9 +16,9 @@ const getAllMovies = (callback) => {
 
 // Function to retrieve a movie by its ID
 const getMovieById = (id, callback) => {
-    const sql = `SELECT Movies.*, Directors.name as director_name 
-                 FROM Movies 
-                 LEFT JOIN Directors ON Movies.director_id = Directors.id 
+    const sql = `SELECT Movies.*, Directors.name as director_name
+                 FROM Movies
+                 LEFT JOIN Directors ON Movies.director_id = Directors.id
                  WHERE Movies.id = ?`;
 
     db.get(sql, [id], (err, row) => {
@@ -27,35 +27,51 @@ const getMovieById = (id, callback) => {
 };
 
 
-
-// Function to create a new movie
-const createMovie = async (movieData, callback) => {
-    const { title, description, release_year, genre, director_name, image_url, actors } = movieData;
-
+// Function to find or create a director by name
+const findOrCreateDirectorByName = async (director_name, callback) => {
     try {
-        // Check if the director already exists in the database
-        let director = await db.get(`SELECT * FROM Directors WHERE name = ?`, [director_name]);
+        // Find the director by name
+        let director = await new Promise((resolve, reject) => {
+            db.get(`SELECT * FROM Directors WHERE name = ?`, [director_name], (err, row) => {
+                if (err) {
+                    return reject(err);
+                }
+                resolve(row); // Resolve with the director row if found
+            });
+        });
 
         if (!director) {
-            // If the director doesn't exist, insert it
-            await new Promise((resolve, reject) => {
+            // If the director doesn't exist, insert it and get the new ID
+            director = await new Promise((resolve, reject) => {
                 db.run(`INSERT INTO Directors (name) VALUES (?)`, [director_name], function (err) {
-
-                    if (err) return reject(err);
-                    director = { id: this.lastID };  // Get the inserted director's ID
-                    console.log(director_name, director.id);
-                    resolve();
+                    if (err) {
+                        return reject(err);
+                    }
+                    console.log("New Director ID after insertion:", this.lastID);  // Log the last inserted ID
+                    resolve({ id: this.lastID, name: director_name }); // Resolve with the new director object
                 });
             });
         }
 
-        console.log("Director ID:", director.id);  // Log the director ID
+        console.log("Director found or created:", director.name, director.id); // Log for debugging
 
+        callback(null, director.id);  // Return the director's ID
+    } catch (err) {
+        callback(err, null);
+    }
+};
+
+
+// Function to create a new movie
+const createMovie = async (movieData, callback) => {
+    const { title, description, release_year, genre, director_id, image_url, actors } = movieData;
+
+    try {
         // Insert the movie with the director_id and get the movie ID
         await new Promise((resolve, reject) => {
             const sql = `INSERT INTO Movies (title, description, release_year, genre, director_id, image_url)
                          VALUES (?, ?, ?, ?, ?, ?)`;
-            db.run(sql, [title, description, release_year, genre, director.id, image_url], function (err) {
+            db.run(sql, [title, description, release_year, genre, director_id, image_url], function (err) {
                 if (err) return reject(err);
                 movieData.id = this.lastID;  // Get the last inserted movie ID
                 resolve();
@@ -64,7 +80,7 @@ const createMovie = async (movieData, callback) => {
 
         console.log("Movie ID:", movieData.id);  // Log the movie ID
 
-        // Handle linking actors (explained in the next section)
+        // Handle linking actors (similar logic as for director)
         for (let actor_name of actors) {
             let actor = await db.get(`SELECT * FROM Actors WHERE name = ?`, [actor_name]);
 
@@ -94,19 +110,26 @@ const createMovie = async (movieData, callback) => {
     }
 };
 
-
-
 // Function to update an existing movie
 const updateMovie = (id, movieData, callback) => {
     const { title, description, release_year, genre, director_id, image_url } = movieData;
-    const sql = `UPDATE Movies 
-                 SET title = ?, description = ?, release_year = ?, genre = ?, director_id = ?, image_url = ? 
+    const sql = `UPDATE Movies
+                 SET title = ?, description = ?, release_year = ?, genre = ?, director_id = ?, image_url = ?
                  WHERE id = ?`;
 
     db.run(sql, [title, description, release_year, genre, director_id, image_url, id], function (err) {
-        callback(err, this.changes);
+        if (err) {
+            return callback(err, null);
+        }
+
+        if (this.changes === 0) {
+            return callback(new Error('No movie found with the provided ID'), null);  // Handle case where no rows were updated
+        }
+
+        callback(null, { message: "Movie updated successfully", changes: this.changes });
     });
 };
+
 
 // Function to delete a movie
 const deleteMovie = (id, callback) => {
@@ -229,5 +252,6 @@ module.exports = {
     updateMovie,
     deleteMovie,
     addActorsToMovie,
-    getMovieWithActors
+    getMovieWithActors,
+    findOrCreateDirectorByName
 };

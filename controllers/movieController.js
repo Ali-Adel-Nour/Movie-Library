@@ -1,5 +1,5 @@
 ﻿const movieModel = require('../models/movieModel');
-
+const { findOrCreateDirectorByName } = require('../models/movieModel');
 // Example usage in controller
 exports.getAllMovies = (req, res) => {
     movieModel.getAllMovies((err, rows) => {
@@ -17,19 +17,28 @@ exports.getAllMovies = (req, res) => {
 exports.createMovie = (req, res) => {
     const { title, description, release_year, genre, director_name, image_url, actors } = req.body;
 
-    // Validate actors array
-    if (!Array.isArray(actors) || actors.length === 0) {
-        return res.status(400).json({ error: "'actors' must be a non-empty array of actor names." });
+    // Validate input data
+    if (!title || !description || !release_year || !genre || !director_name || !Array.isArray(actors) || actors.length === 0) {
+        return res.status(400).json({ error: "Please provide all required fields and a non-empty actors array." });
     }
 
-    movieModel.createMovie({ title, description, release_year, genre, director_name, image_url, actors }, (err, result) => {
+    // Find or create the director by name
+    findOrCreateDirectorByName(director_name, (err, director_id) => {
         if (err) {
-            res.status(500).json({ error: err });
-            return;
+            return res.status(500).json({ error: err.message });
         }
-        res.json({
-            message: "Movie and related entities created successfully",
-            data: result
+
+        console.log("Director ID in createMovie:", director_id); // Debugging log
+
+        // Now create the movie with the correct director_id
+        movieModel.createMovie({ title, description, release_year, genre, director_id, image_url, actors }, (err, result) => {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            res.status(201).json({
+                message: "Movie created successfully",
+                data: result
+            });
         });
     });
 };
@@ -48,21 +57,39 @@ exports.getMovieById = (req, res) => {
         });
     });
 }
-
 exports.updateMovie = (req, res) => {
     const id = req.params.id;
-    const { title, description, release_year, genre, director_id, image_url } = req.body;
-    movieModel.updateMovie(id, { title, description, release_year, genre, director_id, image_url }, (err, result) => {
+    const { title, description, release_year, genre, director_name, image_url } = req.body;
+
+    // Validate input data
+    if (!title || !description || !release_year || !genre || !director_name) {
+        return res.status(400).json({ error: "Please provide all required fields." });
+    }
+
+    // Find or create the director by name
+    findOrCreateDirectorByName(director_name, (err, director_id) => {
         if (err) {
-            res.status(500).json({ error: err.message });
-            return;
+            return res.status(500).json({ error: err.message });
         }
-        res.json({
-            message: "Movie updated successfully",
-            data: result
+
+        // Log to verify director_id
+        console.log("Director ID in updateMovie:", director_id);
+
+        // Now update the movie with the correct director_id
+        movieModel.updateMovie(id, { title, description, release_year, genre, director_id, image_url }, (err, result) => {
+            if (err) {
+                return res.status(500).json({ error: err.message });
+            }
+            res.json({
+                message: "Movie updated successfully",
+                data: result
+            });
         });
     });
-}
+};
+
+
+
 
 exports.deleteMovie = (req, res) => {
     const id = req.params.id;
